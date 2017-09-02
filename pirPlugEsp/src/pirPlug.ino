@@ -287,12 +287,6 @@ if(WiFi.status()!= WL_CONNECTED && apStartTime + apTimeOut < millis()){
       digitalWrite(BUILTINLED, HIGH);
 
       requestSent = false;
-
-      if (WiFi.status() == WL_CONNECTED && digitalRead(RELEY) == HIGH){
-        blink(1, 5);
-        Serial.print(F("\nxxxxxxxxxxxxxxxxxxxxxxxxxxxx"));
-        sendRequest(sensorData);
-      }
       lastTime = millis();
     }
   }else{ //MODE=MANUAL
@@ -469,6 +463,9 @@ void createWebServer() {
     JsonObject &root = jsonBuffer.createObject();
 
     root["url"] = "Enter url to bin file here and POST json object to ESP.";
+    root["currentVersion"] = "1.0.0";
+    root["fingerPrint"] = "Enter SHA1 fingerprint if using ssl.";
+    root["securityToken"] = "";
 
     String content;
     root.printTo(content);
@@ -490,13 +487,15 @@ void createWebServer() {
     //    }
 
     String url = root["url"];
+    String currentVersion = root["currentVersion"];
+    String fingerPrint = root["fingerPrint"];
     Serial.println("");
     Serial.print("Update url: ");
     Serial.println(url);
 
     blink(10, 80);
 
-    t_httpUpdate_return ret = ESPhttpUpdate.update(url);
+    t_httpUpdate_return ret = ESPhttpUpdate.update(url, currentVersion, fingerPrint);
 
     switch (ret) {
     case HTTP_UPDATE_FAILED:
