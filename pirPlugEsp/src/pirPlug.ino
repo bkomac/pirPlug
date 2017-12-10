@@ -20,7 +20,6 @@
 #include <ArduinoJson.h>
 #include <DHT.h>
 
-
 void blink();
 void blink(int);
 void blink(int, int);
@@ -46,7 +45,7 @@ ADC_MODE(ADC_VCC);
 int lightTreshold = 0; // 0 - dark, >100 - light
 
 // APP
-String FIRM_VER = "1.0.0";
+String FIRM_VER = "1.0.3";
 String SENSOR = "PIR,DHT21"; // BMP180, HTU21, DHT11
 
 String app_id = "";
@@ -93,7 +92,7 @@ boolean buttonPressed = false;
 boolean requestSent = false;
 long lastTime = millis();
 long apStartTime = 0;
-int apTimeOut = 60000; //1 min
+int apTimeOut = 60000; // 1 min
 long startTime;
 
 int BUILTINLED = 2;
@@ -195,10 +194,11 @@ void setup() { //------------------------------------------------
     mqReconnect();
   }
 
+  /*Serial.print(F("Seting websocket ... "));
   webSocket.begin();
   webSocket.onEvent(webSocketEvent);
+  */
 } //--
-
 
 // -----------------------------------------------------------------------------
 // loop ------------------------------------------------------------------------
@@ -206,13 +206,13 @@ void setup() { //------------------------------------------------
 void loop() {
   yield();
 
-if(WiFi.status()!= WL_CONNECTED && apStartTime + apTimeOut < millis()){
-  Serial.print(F("\nRetray to connect to AP... "));
-  testWifi();
-}
+  if (WiFi.status() != WL_CONNECTED && apStartTime + apTimeOut < millis()) {
+    Serial.print(F("\nRetray to connect to AP... "));
+    testWifi();
+  }
 
   rssi = WiFi.RSSI();
-
+  yield();
   server.handleClient();
 
   int inputState = LOW;
@@ -245,9 +245,10 @@ if(WiFi.status()!= WL_CONNECTED && apStartTime + apTimeOut < millis()){
     Serial.println(humd);
     */
 
-    //Serial.print("Sending ws msg...");
-    //webSocket.broadcastTXT("{\"temp\":" + String(temp, 1) + ", \"hum\":" + String(humd, 1) + "}");
-  }else{
+    // Serial.print("Sending ws msg...");
+    // webSocket.broadcastTXT("{\"temp\":" + String(temp, 1) + ", \"hum\":" +
+    // String(humd, 1) + "}");
+  } else {
     temp = NULL;
     humd = NULL;
   }
@@ -261,7 +262,7 @@ if(WiFi.status()!= WL_CONNECTED && apStartTime + apTimeOut < millis()){
 
   if (MODE == "AUTO") {
     if (inputState == HIGH) {
-      Serial.println(F("Sensor high..."));
+      // Serial.println(F("Sensor high..."));
       // Serial.println(adc);
       if (adc <= lightTreshold) {
         Serial.print(F("\nLight treshold = "));
@@ -289,7 +290,7 @@ if(WiFi.status()!= WL_CONNECTED && apStartTime + apTimeOut < millis()){
       requestSent = false;
       lastTime = millis();
     }
-  }else{ //MODE=MANUAL
+  } else { // MODE=MANUAL
 
     if (millis() > lastTime + timeOut && !buttonPressed) {
       blink(1, 5);
@@ -297,6 +298,13 @@ if(WiFi.status()!= WL_CONNECTED && apStartTime + apTimeOut < millis()){
 
       lastTime = millis();
     }
+  }
+
+  // send heartbeat
+  if (millis() > lastTime + timeOut) {
+    Serial.println(F("Sending heartbeat..."));
+    sendRequest(sensorData);
+    lastTime = millis();
   }
 
   // button pressed
@@ -430,7 +438,7 @@ void createWebServer() {
     }
 
     JsonObject &data = root.createNestedObject("data");
-    if(temp != NULL){
+    if (temp != NULL) {
       data["temp"] = temp;
       data["hum"] = humd;
     }
@@ -479,61 +487,62 @@ void createWebServer() {
     String content;
 
     String secToken = root["securityToken"].asString();
-    if(secToken == securityToken){
-    Serial.println("Updating firmware...");
-    String message = "";
-    //    for (uint8_t i = 0; i < server.args(); i++) {
-    //      message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
-    //    }
+    if (secToken == securityToken) {
+      Serial.println("Updating firmware...");
+      String message = "";
+      //    for (uint8_t i = 0; i < server.args(); i++) {
+      //      message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
+      //    }
 
-    String url = root["url"];
-    String currentVersion = root["currentVersion"];
-    String fingerPrint = root["fingerPrint"];
-    Serial.println("");
-    Serial.print("Update url: ");
-    Serial.println(url);
+      String url = root["url"];
+      String currentVersion = root["currentVersion"];
+      String fingerPrint = root["fingerPrint"];
+      Serial.println("");
+      Serial.print("Update url: ");
+      Serial.println(url);
 
-    blink(10, 80);
+      blink(10, 80);
 
-    t_httpUpdate_return ret = ESPhttpUpdate.update(url, currentVersion, fingerPrint);
+      t_httpUpdate_return ret =
+          ESPhttpUpdate.update(url, currentVersion, fingerPrint);
 
-    switch (ret) {
-    case HTTP_UPDATE_FAILED:
-      Serial.printf("HTTP_UPDATE_FAILD Error (%d): %s",
-                    ESPhttpUpdate.getLastError(),
-                    ESPhttpUpdate.getLastErrorString().c_str());
-      root["rc"] = ESPhttpUpdate.getLastError();
-      message += "HTTP_UPDATE_FAILD Error (";
-      message += ESPhttpUpdate.getLastError();
-      message += "): ";
-      message += ESPhttpUpdate.getLastErrorString().c_str();
-      root["msg"] = message;
+      switch (ret) {
+      case HTTP_UPDATE_FAILED:
+        Serial.printf("HTTP_UPDATE_FAILD Error (%d): %s",
+                      ESPhttpUpdate.getLastError(),
+                      ESPhttpUpdate.getLastErrorString().c_str());
+        root["rc"] = ESPhttpUpdate.getLastError();
+        message += "HTTP_UPDATE_FAILD Error (";
+        message += ESPhttpUpdate.getLastError();
+        message += "): ";
+        message += ESPhttpUpdate.getLastErrorString().c_str();
+        root["msg"] = message;
+        root.printTo(content);
+        server.send(400, "application/json", content);
+        break;
+
+      case HTTP_UPDATE_NO_UPDATES:
+        Serial.println("HTTP_UPDATE_NO_UPDATES");
+        root["rc"] = 400;
+        root["msg"] = "HTTP_UPDATE_NO_UPDATES";
+        root.printTo(content);
+        server.send(400, "application/json", content);
+        break;
+
+      case HTTP_UPDATE_OK:
+        Serial.println("HTTP_UPDATE_OK");
+        root["rc"] = 200;
+        root["msg"] = "HTTP_UPDATE_OK";
+        root.printTo(content);
+        server.send(200, "application/json", content);
+        break;
+      }
+    } else {
+      root["rc"] = 401;
+      root["msg"] = "Security token is not valid!";
       root.printTo(content);
-      server.send(400, "application/json", content);
-      break;
-
-    case HTTP_UPDATE_NO_UPDATES:
-      Serial.println("HTTP_UPDATE_NO_UPDATES");
-      root["rc"] = 400;
-      root["msg"] = "HTTP_UPDATE_NO_UPDATES";
-      root.printTo(content);
-      server.send(400, "application/json", content);
-      break;
-
-    case HTTP_UPDATE_OK:
-      Serial.println("HTTP_UPDATE_OK");
-      root["rc"] = 200;
-      root["msg"] = "HTTP_UPDATE_OK";
-      root.printTo(content);
-      server.send(200, "application/json", content);
-      break;
+      server.send(401, "application/json", content);
     }
-  }else{
-    root["rc"] = 401;
-    root["msg"] = "Security token is not valid!";
-    root.printTo(content);
-    server.send(401, "application/json", content);
-  }
 
   });
 
@@ -581,86 +590,88 @@ void createWebServer() {
     String content;
 
     String secToken = root["securityToken"].asString();
-    if(secToken == securityToken){
+    if (secToken == securityToken) {
 
-      securityToken = root["newSecurityToken"].asString();
-      root["securityToken"] = root["newSecurityToken"];
+      if (root["newSecurityToken"] != "" && root["newSecurityToken"] != NULL) {
+        securityToken = root["newSecurityToken"].asString();
+        root["securityToken"] = root["newSecurityToken"];
+      }
 
-    String timeOut1 = root["timeOut"];
-    timeOut = timeOut1.toInt();
-    String relley1 = root["relleyPin"];
-    RELEY = relley1.toInt();
-    String gpioIn1 = root["sensorInPin"];
-    GPIO_IN = gpioIn1.toInt();
-    String button1 = root["buttonPin"];
-    BUTTON = button1.toInt();
-    String builtInLed1 = root["statusLed"];
-    BUILTINLED = builtInLed1.toInt();
-    String lightTreshold1 = root["lightTreshold"];
-    lightTreshold = lightTreshold1.toInt();
+      String timeOut1 = root["timeOut"];
+      timeOut = timeOut1.toInt();
+      String relley1 = root["relleyPin"];
+      RELEY = relley1.toInt();
+      String gpioIn1 = root["sensorInPin"];
+      GPIO_IN = gpioIn1.toInt();
+      String button1 = root["buttonPin"];
+      BUTTON = button1.toInt();
+      String builtInLed1 = root["statusLed"];
+      BUILTINLED = builtInLed1.toInt();
+      String lightTreshold1 = root["lightTreshold"];
+      lightTreshold = lightTreshold1.toInt();
 
-    defaultMODE = root["defaultMode"].asString();
+      defaultMODE = root["defaultMode"].asString();
 
-    String mqttAddress1 = root["mqttAddress"].asString();
-    mqttAddress1.toCharArray(mqttAddress, 200, 0);
-    String mqttPort1 = root["mqttPort"];
-    mqttPort = mqttPort1.toInt();
-    String mqttUser1 = root["mqttUser"].asString();
-    mqttUser1.toCharArray(mqttUser, 20, 0);
-    String mqttPassword1 = root["mqttPassword"].asString();
-    mqttPassword1.toCharArray(mqttPassword, 20, 0);
+      String mqttAddress1 = root["mqttAddress"].asString();
+      mqttAddress1.toCharArray(mqttAddress, 200, 0);
+      String mqttPort1 = root["mqttPort"];
+      mqttPort = mqttPort1.toInt();
+      String mqttUser1 = root["mqttUser"].asString();
+      mqttUser1.toCharArray(mqttUser, 20, 0);
+      String mqttPassword1 = root["mqttPassword"].asString();
+      mqttPassword1.toCharArray(mqttPassword, 20, 0);
 
-    String mqttPubTopic1 = root["mqttPublishTopic"].asString();
-    mqttPubTopic1.toCharArray(mqttPublishTopic, 200, 0);
-    String mqttSusTopic1 = root["mqttSuscribeTopic"].asString();
-    mqttSusTopic1.toCharArray(mqttSuscribeTopic, 200, 0);
+      String mqttPubTopic1 = root["mqttPublishTopic"].asString();
+      mqttPubTopic1.toCharArray(mqttPublishTopic, 200, 0);
+      String mqttSusTopic1 = root["mqttSuscribeTopic"].asString();
+      mqttSusTopic1.toCharArray(mqttSuscribeTopic, 200, 0);
 
-    String rest_server1 = root["restApiServer"].asString();
-    rest_server1.toCharArray(rest_server, 40, 0);
+      String rest_server1 = root["restApiServer"].asString();
+      rest_server1.toCharArray(rest_server, 40, 0);
 
-    String rest_ssl1 = root["restApiSSL"];
-    if (rest_ssl1 == "true")
-      rest_ssl = true;
-    else
-      rest_ssl = false;
+      String rest_ssl1 = root["restApiSSL"];
+      if (rest_ssl1 == "true")
+        rest_ssl = true;
+      else
+        rest_ssl = false;
 
-    String rest_path1 = root["restApiPath"].asString();
-    rest_path1.toCharArray(rest_path, 200, 0);
-    String rest_port1 = root["restApiPort"];
-    rest_port = rest_port1.toInt();
-    String api_token1 = root["restApiToken"].asString();
-    api_token1.toCharArray(api_token, 200, 0);
-    String api_payload1 = root["restApiPayload"].asString();
-    api_payload1.toCharArray(api_payload, 400, 0);
+      String rest_path1 = root["restApiPath"].asString();
+      rest_path1.toCharArray(rest_path, 200, 0);
+      String rest_port1 = root["restApiPort"];
+      rest_port = rest_port1.toInt();
+      String api_token1 = root["restApiToken"].asString();
+      api_token1.toCharArray(api_token, 200, 0);
+      String api_payload1 = root["restApiPayload"].asString();
+      api_payload1.toCharArray(api_payload, 400, 0);
 
-    String deviceName1 = root["deviceName"].asString();
-    if (deviceName1 != "")
-      deviceName1.toCharArray(deviceName, 200, 0);
+      String deviceName1 = root["deviceName"].asString();
+      if (deviceName1 != "")
+        deviceName1.toCharArray(deviceName, 200, 0);
 
-    root.printTo(Serial);
+      root.printTo(Serial);
 
-    saveConfig(root);
-    pinMode(RELEY, OUTPUT);
-    pinMode(GPIO_IN, INPUT);
+      saveConfig(root);
+      pinMode(RELEY, OUTPUT);
+      pinMode(GPIO_IN, INPUT);
 
-    Serial.println(F("\nConfiguration is saved."));
-    root["rc"] = 200;
-    root["msg"] = "Configuration is saved.";
-    root.printTo(content);
-    server.sendHeader("Access-Control-Allow-Methods", "POST,GET,OPTIONS");
-    server.sendHeader("Access-Control-Allow-Headers",
-                      "Origin, X-Requested-With, Content-Type, Accept");
-    server.send(200, "application/json", content);
-  }else{
-    Serial.println(F("\nSecurity tokent not valid!"));
-    root["rc"] = 401;
-    root["msg"] = "Security tokent not valid!";
-    root.printTo(content);
-    server.sendHeader("Access-Control-Allow-Methods", "POST,GET,OPTIONS");
-    server.sendHeader("Access-Control-Allow-Headers",
-                      "Origin, X-Requested-With, Content-Type, Accept");
-    server.send(401, "application/json", content);
-  }
+      Serial.println(F("\nConfiguration is saved."));
+      root["rc"] = 200;
+      root["msg"] = "Configuration is saved.";
+      root.printTo(content);
+      server.sendHeader("Access-Control-Allow-Methods", "POST,GET,OPTIONS");
+      server.sendHeader("Access-Control-Allow-Headers",
+                        "Origin, X-Requested-With, Content-Type, Accept");
+      server.send(200, "application/json", content);
+    } else {
+      Serial.println(F("\nSecurity tokent not valid!"));
+      root["rc"] = 401;
+      root["msg"] = "Security tokent not valid!";
+      root.printTo(content);
+      server.sendHeader("Access-Control-Allow-Methods", "POST,GET,OPTIONS");
+      server.sendHeader("Access-Control-Allow-Headers",
+                        "Origin, X-Requested-With, Content-Type, Accept");
+      server.send(401, "application/json", content);
+    }
     if (mqttAddress != "") {
       mqClient.setServer(mqttAddress, mqttPort);
     }
@@ -703,43 +714,42 @@ void createWebServer() {
     Serial.print(F("\nSetting ssid to "));
 
     String secToken = root["securityToken"].asString();
-    if(secToken == securityToken){
-    String ssid1 = root["ssid"].asString();
-    ssid1.toCharArray(essid, 40, 0);
-    String pwd1 = root["password"].asString();
-    pwd1.toCharArray(epwd, 40, 0);
+    if (secToken == securityToken) {
+      String ssid1 = root["ssid"].asString();
+      ssid1.toCharArray(essid, 40, 0);
+      String pwd1 = root["password"].asString();
+      pwd1.toCharArray(epwd, 40, 0);
 
-    Serial.println(essid);
+      Serial.println(essid);
 
-    Serial.println(F("\nNew ssid is set. ESP will reconect..."));
-    root["rc"] = 200;
-    root["msg"] = "New ssid is set. ESP will reconect.";
+      Serial.println(F("\nNew ssid is set. ESP will reconect..."));
+      root["rc"] = 200;
+      root["msg"] = "New ssid is set. ESP will reconect.";
 
-    String content;
-    root.printTo(content);
-    saveSsid(root);
-    server.send(200, "application/json", content);
+      String content;
+      root.printTo(content);
+      saveSsid(root);
+      server.send(200, "application/json", content);
 
-    delay(500);
-    ESP.eraseConfig();
-    delay(1000);
-    WiFi.disconnect();
-    delay(1000);
-    WiFi.mode(WIFI_STA);
-    delay(1000);
-    WiFi.begin(essid, epwd);
-    delay(1000);
-    testWifi();
-  }else{
-    Serial.println(F("\nSecurity token not valid!"));
-    root["rc"] = 401;
-    root["msg"] = "Security token not valid!";
+      delay(500);
+      ESP.eraseConfig();
+      delay(1000);
+      WiFi.disconnect();
+      delay(1000);
+      WiFi.mode(WIFI_STA);
+      delay(1000);
+      WiFi.begin(essid, epwd);
+      delay(1000);
+      testWifi();
+    } else {
+      Serial.println(F("\nSecurity token not valid!"));
+      root["rc"] = 401;
+      root["msg"] = "Security token not valid!";
 
-    String content;
-    root.printTo(content);
-    server.send(401, "application/json", content);
-
-  }
+      String content;
+      root.printTo(content);
+      server.send(401, "application/json", content);
+    }
 
   });
 
@@ -749,36 +759,37 @@ void createWebServer() {
     JsonObject &root = jsonBuffer.createObject();
 
     String secToken = root["securityToken"].asString();
-    if(secToken == securityToken){
-    root["rc"] = 200;
-    root["msg"] = "Reseting ESP config. Configuration will be erased ...";
-    Serial.println(F("\nReseting ESP config. Configuration will be erased..."));
+    if (secToken == securityToken) {
+      root["rc"] = 200;
+      root["msg"] = "Reseting ESP config. Configuration will be erased ...";
+      Serial.println(
+          F("\nReseting ESP config. Configuration will be erased..."));
 
-    String content;
-    root.printTo(content);
-    server.send(200, "application/json", content);
-    delay(3000);
+      String content;
+      root.printTo(content);
+      server.send(200, "application/json", content);
+      delay(3000);
 
-    // clean FS, for testing
-    SPIFFS.format();
-    delay(1000);
-    // reset settings - for testing
-    WiFi.disconnect(true);
-    delay(1000);
+      // clean FS, for testing
+      SPIFFS.format();
+      delay(1000);
+      // reset settings - for testing
+      WiFi.disconnect(true);
+      delay(1000);
 
-    ESP.eraseConfig();
+      ESP.eraseConfig();
 
-    ESP.reset();
-    delay(5000);
-  }else{
-    root["rc"] = 401;
-    root["msg"] = "Security token not valid!";
-    Serial.println(F("\nSecurity token not valid!"));
+      ESP.reset();
+      delay(5000);
+    } else {
+      root["rc"] = 401;
+      root["msg"] = "Security token not valid!";
+      Serial.println(F("\nSecurity token not valid!"));
 
-    String content;
-    root.printTo(content);
-    server.send(401, "application/json", content);
-  }
+      String content;
+      root.printTo(content);
+      server.send(401, "application/json", content);
+    }
   });
 
   server.on("/reset", HTTP_GET, []() {
@@ -812,8 +823,8 @@ void sendRequest(String sensorData) {
   String data = "{" + api_payload_s + "\"sensor\":{\"sensor_type\":\"" +
                 SENSOR + "\", \"data\":{" + sensorData + "}" + ", \"ver\":\"" +
                 FIRM_VER + "\"" + ", \"ip\":\"" + espIp + "\"" + ", \"id\":\"" +
-                app_id + "\"" + ", \"name\":\"" +
-                String(deviceName) + "\"" + ", \"adc\":" + adc + "}}";
+                app_id + "\"" + ", \"name\":\"" + String(deviceName) + "\"" +
+                ", \"adc\":" + adc + "}}";
 
   // REST request
   if (String(rest_server) != "" && getIP(WiFi.localIP()) != "") {
@@ -843,14 +854,14 @@ void sendRequest(String sensorData) {
     Serial.print("POST data to URL: ");
     Serial.println(url);
     delay(10);
-    String req =
-        String("POST ") + url + " HTTP/1.1\r\n" +
-        "Host: " + String(rest_server) + "\r\n" + "User-Agent: ESP/1.0\r\n" +
-        "Content-Type: application/json\r\n" + "Cache-Control: no-cache\r\n" +
-        "Sensor-Id: " + String(app_id) + "\r\n" +
-        "Token: " + String(api_token) + "\r\n" +
-        "Content-Type: application/x-www-form-urlencoded;\r\n" +
-        "Content-Length: " + data.length() + "\r\n" + "\r\n" + data;
+    String req = String("POST ") + url + " HTTP/1.1\r\n" + "Host: " +
+                 String(rest_server) + "\r\n" + "User-Agent: ESP/1.0\r\n" +
+                 "Content-Type: application/json\r\n" +
+                 "Cache-Control: no-cache\r\n" + "Sensor-Id: " +
+                 String(app_id) + "\r\n" + "Token: " + String(api_token) +
+                 "\r\n" +
+                 "Content-Type: application/x-www-form-urlencoded;\r\n" +
+                 "Content-Length: " + data.length() + "\r\n" + "\r\n" + data;
     Serial.print(F("Request: "));
     Serial.println(req);
     client.print(req);
@@ -870,7 +881,8 @@ void sendRequest(String sensorData) {
   }
 
   // MQTT publish
-  if (String(mqttAddress) != "" && String(mqttPublishTopic) != "" && getIP(WiFi.localIP()) != "") {
+  if (String(mqttAddress) != "" && String(mqttPublishTopic) != "" &&
+      getIP(WiFi.localIP()) != "") {
     mqPublish(data);
   }
 
@@ -905,7 +917,7 @@ void saveSsid(JsonObject &json) {
 
 // MQTT
 void mqCallback(char *topic, byte *payload, unsigned int length) {
-  Serial.print(F("Message arrived ["));
+  Serial.print(F("\nMessage arrived ["));
   Serial.print(topic);
   Serial.print(F("] "));
   String msg = "";
@@ -921,6 +933,8 @@ void mqCallback(char *topic, byte *payload, unsigned int length) {
 
   String temp = rootMqtt["sensor"]["data"]["temp"].asString();
   String hum = rootMqtt["sensor"]["data"]["hum"].asString();
+  Serial.print("\ntemp:");
+  Serial.println(temp);
 }
 
 bool mqReconnect() {
@@ -945,7 +959,7 @@ bool mqReconnect() {
       Serial.println(app_id);
 
       // suscribe
-      if (String(mqttSuscribeTopic) != ""){
+      if (String(mqttSuscribeTopic) != "") {
         mqClient.subscribe(String(mqttSuscribeTopic).c_str());
         Serial.print(F("\nSuscribed to toppic: "));
         Serial.println(mqttSuscribeTopic);
@@ -954,7 +968,6 @@ bool mqReconnect() {
     } else {
       Serial.print(F("\nfailed to connect! Client state: "));
       Serial.println(mqClient.state());
-
     }
   }
   return mqClient.connected();
@@ -1102,7 +1115,7 @@ void readFS() {
           BUILTINLED = builtInLed1.toInt();
 
           defaultMODE = jsonConfig["defaultMode"].asString();
-          if(defaultMODE != "" && defaultMODE != NULL)
+          if (defaultMODE != "" && defaultMODE != NULL)
             MODE = defaultMODE;
 
           String mqttAddress1 = jsonConfig["mqttAddress"].asString();
@@ -1213,17 +1226,17 @@ String getMac() {
   return result;
 }
 
-String getIP(IPAddress ip){
+String getIP(IPAddress ip) {
   String ipo = String(ip[0]) + '.' + String(ip[1]) + '.' + String(ip[2]) + '.' +
-          String(ip[3]);
-  if(ipo=="0.0.0.0")
-  ipo = "";
+               String(ip[3]);
+  if (ipo == "0.0.0.0")
+    ipo = "";
   return ipo;
 }
 
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t *payload,
                     size_t length) {
-
+  Serial.println(F("webSocketEvent..."));
   switch (type) {
   case WStype_DISCONNECTED:
     Serial.printf("[%u] Disconnected!\n", num);
